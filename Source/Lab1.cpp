@@ -19,16 +19,6 @@ struct Intersection
   int triangleIndex;
 };
 
-/*
-struct Triangle
-{
-vec3 v0;
-vec3 v1;
-vec3 v2;
-vec3 normal;
-vec3 color;
-};
-*/
 // GLOBAL VARIABLES
 const int SCREEN_WIDTH = 100;//512;
 const int SCREEN_HEIGHT = 100;//512;
@@ -206,6 +196,7 @@ void Update(){
   if( keystate[SDLK_q] ) { lightPos-=down; }
   if( keystate[SDLK_e] ) { lightPos+=down; }
 
+  cout<<lightPos.x <<" "<<lightPos.y<<" "<<lightPos.z<<endl;
 }
 
 void UpdateRY(){
