@@ -112,42 +112,6 @@ void Draw()
   for (std::thread &th:threads){
     th.join();
   }
-      /*
-      vec3 color(0, 0, 0);
-      for (int i = -(ns)/2; i< (ns)/2; i++){
-
-        for (int j = -(ns)/2; i< (ns)/2; i++){
-          float AAx = x+i/ns;
-					float AAy = y+j/ns;
-
-          vec3 d(AAx - SCREEN_WIDTH/2, AAy - SCREEN_HEIGHT/2, focalLength);
-          Intersection is;
-          if (ClosestIntersection(cameraPos, d, triangle, is)) {
-            vec3 D = DirectLight(is);
-            vec3 p = triangle[is.triangleIndex].color;
-
-            color += p * (D +indirectLight);
-          }
-        }
-        PutPixelSDL( screen, x, y, color/ns);
-      }
-*/
-      /*
-      //normalised vector from origin to image-plane
-      vec3 d(x - SCREEN_WIDTH/2, y - SCREEN_HEIGHT/2, focalLength);
-      //d = R * d;
-      d.x = right.x * d.x+right.y * d.y+right.z * d.z;
-      d.y = down.x * d.x+down.y * d.y+down.z * d.z;
-      d.z = forward.x * d.x+forward.y * d.y+forward.z * d.z;
-      Intersection is;
-      if (ClosestIntersection(cameraPos, d, triangle, is)) {
-        vec3 D = DirectLight(is);
-        vec3 p = triangle[is.triangleIndex].color;
-        vec3 R = p * (D +indirectLight);
-        PutPixelSDL( screen, x, y, R);
-      }else{
-        PutPixelSDL( screen, x, y, vec3(0, 0, 0));
-      }*/
   if( SDL_MUSTLOCK(screen) ) SDL_UnlockSurface(screen);
   SDL_UpdateRect( screen, 0, 0, 0, 0 );
 }
