@@ -44,8 +44,6 @@ vec3 lightPos(0, -0.5, -0.7);
 vec3 lightPower = 11.f * vec3(1, 1, 1);
 vec3 indirectLightPowerPerArea = 0.5f * vec3(1, 1, 1);
 
-vec3 currentColor;
-
 vec3 currentNormal;
 vec3 currentReflectance;
 
@@ -130,6 +128,7 @@ void VertexShader(const Vertex & v, Pixel& p){
 void PixelShader(const Pixel& p){
   int x = p.x;
   int y = p.y;
+  if ((p.x <0)||(p.y < 0) ||(p.x >=SCREEN_WIDTH)||(p.y>=SCREEN_HEIGHT)) return;
   if( p.zinv > depthBuffer[y][x] )
   {
     depthBuffer[y][x] = p.zinv;
@@ -138,8 +137,7 @@ void PixelShader(const Pixel& p){
     ur = normalize( ur );             //unit vector
     float nr = dot(  ur , currentNormal );
 
-    float A = 4 * M_PI * r * r;
-    vec3 D = lightPower * glm::max( nr, 0.f ) /A;
+    vec3 D = lightPower * glm::max( nr, 0.f ) /float(4 * M_PI * r * r);
     vec3 illumination = currentReflectance * ( D + indirectLightPowerPerArea );
     PutPixelSDL( screen, x, y, illumination );
   }
@@ -313,7 +311,7 @@ void Update(){
   if( keystate[SDLK_d] ) { lightPos+=right; }
   if( keystate[SDLK_q] ) { lightPos-=down; }
   if( keystate[SDLK_e] ) { lightPos+=down; }
-cout<<lightPos.x <<" "<<lightPos.y<<" "<<lightPos.z<<endl;
+//cout<<lightPos.x <<" "<<lightPos.y<<" "<<lightPos.z<<endl;
     R = RY * RX;
 }
 

@@ -4,13 +4,18 @@
 #include <vector>
 #include "SDLauxiliary.h"
 #include "TestModel.h"
+#include "BoundingBox.h"
+#include "KDTree.h"
 #include <limits>
 #include <math.h>
+#include <thread>
+#include <future>
+
 
 using namespace std;
 using glm::vec3;
 using glm::mat3;
-// ---------------------------------------------------------
+
 
 struct Intersection
 {
@@ -19,41 +24,38 @@ struct Intersection
   int triangleIndex;
 };
 
+// ---------------------------------------------------------
 // GLOBAL VARIABLES
-const int SCREEN_WIDTH = 100;//512;
-const int SCREEN_HEIGHT = 100;//512;
+const int SCREEN_WIDTH = 512;
+const int SCREEN_HEIGHT = 512;
+
 SDL_Surface* screen;
 vector<Triangle> triangle;
-float focalLength=SCREEN_WIDTH;
-vec3 cameraPos(0, 0, -3);//0, 0, -3
 
+float focalLength=SCREEN_WIDTH;
+vec3 cameraPos(0, 0, -3);
 mat3 R = mat3(1, 0, 0, 0, 1, 0, 0, 0, 1);//rotation matrix of the camera
 float yaw = 0; //store the angle which the camera should be rotated
 int t;
 
-vec3 lightPos(0, -0.5, -0.7);//-0.5, -0.7);
-
-//power P: energy per time of the emitted light for each color component
-//Each component has the unit W = J/s
+vec3 lightPos(0, -0.5, -0.7);
 vec3 lightColor = 14.f * vec3(1, 1, 1);
 vec3 indirectLight = 0.5f * vec3(1,1,1);
 
+float ns = 4;//Anti-aliasing variable
 
 // ---------------------------------------------------------
 // FUNCTION DECLARATIONS
-
 bool ClosestIntersection(vec3 start,vec3 dir,const vector<Triangle>& triangles, Intersection& closestIntersection );
 void Draw();
 void Update();
 void UpdateRY();
 vec3 DirectLight(const Intersection& i);
 // ---------------------------------------------------------
-
-
 // FUNCTION DEFINITIONS
 int main( int argc, char* argv[] )
 {
-//To fill this vector with some triangles representing a 3D model you can use the function:
+  //To fill this vector with some triangles representing a 3D model you can use the function:
   LoadTestModel(triangle );
   screen = InitializeSDL( SCREEN_WIDTH, SCREEN_HEIGHT );
 
@@ -75,34 +77,77 @@ void Draw()
   vec3 down( R[1][0], R[1][1], R[1][2] );
   vec3 forward( R[2][0], R[2][1], R[2][2] );
 
+  vector<std::thread> threads;
+  int num = 50;   //number of operations in one thread
+
   if( SDL_MUSTLOCK(screen) ) SDL_LockSurface(screen);
-  for( int y=0; y<SCREEN_HEIGHT; ++y )
-  {
-    for( int x=0; x<SCREEN_WIDTH; ++x )
-    {
+
+  for (int y2 = 0;y2<SCREEN_HEIGHT;y2=y2+num){
+    threads.push_back(std::thread([](int y2, int num){
+      for (int y = y2;y<y2+num;y++){
+        //Return if y exceeds screen boundary
+        if (y >= SCREEN_HEIGHT) return;
+        for (int x2 = 0;x2<SCREEN_WIDTH;x2++){
+          vec3 color(0, 0, 0);
+          //Anti-aliasing
+          for (int i = -(ns)/2; i< (ns)/2; i++){
+            for (int j = -(ns)/2; j< (ns)/2; j++){
+              float AAx = x2+i/ns;
+    					float AAy = y+j/ns;
+              vec3 d = vec3(AAx - SCREEN_WIDTH/2, AAy - SCREEN_HEIGHT/2, focalLength)*R;
+              Intersection is;
+              if (ClosestIntersection(cameraPos, d, triangle, is)) {
+                vec3 D = DirectLight(is);
+                vec3 p = triangle[is.triangleIndex].color;
+                color += p * (D +indirectLight);
+              }
+            }
+          }
+          PutPixelSDL( screen, x2, y, color/(ns*ns));
+        }
+      }
+    }, y2, num));
+  }
+
+  for (std::thread &th:threads){
+    th.join();
+  }
+      /*
+      vec3 color(0, 0, 0);
+      for (int i = -(ns)/2; i< (ns)/2; i++){
+
+        for (int j = -(ns)/2; i< (ns)/2; i++){
+          float AAx = x+i/ns;
+					float AAy = y+j/ns;
+
+          vec3 d(AAx - SCREEN_WIDTH/2, AAy - SCREEN_HEIGHT/2, focalLength);
+          Intersection is;
+          if (ClosestIntersection(cameraPos, d, triangle, is)) {
+            vec3 D = DirectLight(is);
+            vec3 p = triangle[is.triangleIndex].color;
+
+            color += p * (D +indirectLight);
+          }
+        }
+        PutPixelSDL( screen, x, y, color/ns);
+      }
+*/
+      /*
       //normalised vector from origin to image-plane
       vec3 d(x - SCREEN_WIDTH/2, y - SCREEN_HEIGHT/2, focalLength);
       //d = R * d;
       d.x = right.x * d.x+right.y * d.y+right.z * d.z;
       d.y = down.x * d.x+down.y * d.y+down.z * d.z;
       d.z = forward.x * d.x+forward.y * d.y+forward.z * d.z;
-
-      //d = normalize(d);
       Intersection is;
-      bool a = ClosestIntersection(cameraPos, d, triangle, is);
-
-      if (a) {
+      if (ClosestIntersection(cameraPos, d, triangle, is)) {
         vec3 D = DirectLight(is);
         vec3 p = triangle[is.triangleIndex].color;
         vec3 R = p * (D +indirectLight);
         PutPixelSDL( screen, x, y, R);
       }else{
         PutPixelSDL( screen, x, y, vec3(0, 0, 0));
-      }
-
-    }
-
-  }
+      }*/
   if( SDL_MUSTLOCK(screen) ) SDL_UnlockSurface(screen);
   SDL_UpdateRect( screen, 0, 0, 0, 0 );
 }
@@ -110,41 +155,40 @@ void Draw()
 
 bool ClosestIntersection(vec3 start,vec3 dir,const vector<Triangle>& triangles,  Intersection& closestIntersection ){
   closestIntersection.distance= 0;
-  int size = triangles.size();
   int boolFlag = 0;
-  vec3 v0, v1, v2, e1, e2, b, r;
-  mat3 A, A1, A2, A3;
+  vec3 v0, v1, v2, e1, e2, b, r, p, q;
   float t, u, v;
   float distance = 0;
 
-  for (int i = 0;i<size;i++){
-  //Intersection coputation
+  for (int i = 0;i<triangles.size();i++){
     v0 = triangles[i].v0;
-    v1 = triangles[i].v1;
-    v2 = triangles[i].v2;
     //Compute two vectors in plane
-    e1 = v1 - v0;
-    e2 = v2 - v0;
-
+    e1 = triangles[i].v1 - v0;
+    e2 = triangles[i].v2 - v0;
     b = start - v0;
-    A=mat3( -dir, e1, e2 );
-    A1=mat3(b, e1, e2);
-    A2=mat3(-dir, b, e2);
-    A3=mat3(-dir, e1, b);
-    t = determinant(A1)/determinant(A);
+
+    //determinant(mat3(A, B, C))= -dot(cross(A, C), B)  = -dot(cross(C, B), A)
+    //speed up calculation by precomputing cross products
+    p = cross(dir, e2);
+    q = cross(b, e1);
+
+    //Compute barycentric coordinate
+    //http://www.cs.virginia.edu/~gfx/Courses/2003/ImageSynthesis/papers/Acceleration/Fast%20MinimumStorage%20RayTriangle%20Intersection.pdf
     //Inside-Outside test
     // If the point lies on the line, it would be considered as it's inside
-    if (t <0 || t > std::numeric_limits<float>::max()) continue;
-    u = determinant(A2)/determinant(A);
-    if (u <0|| u > std::numeric_limits<float>::max()) continue;
-    v = determinant(A3)/determinant(A);
-    if (v <0|| v > std::numeric_limits<float>::max()) continue;
+    float a = 1/(dot(p, e1)) ;
+    t = a* dot(q, e2);
+    if (t < 0 || t > std::numeric_limits<float>::max()) continue;
+    u = a* dot(p, b);
+    if (u < 0|| u > std::numeric_limits<float>::max()) continue;
+    v = a* dot(q, dir);
+    if (v < 0|| v > std::numeric_limits<float>::max()) continue;
     if (u+v >1) continue;
 
     //All points on plane that triangle lies in
     r = start + t * dir;
     distance = sqrt((start.x - r.x)*(start.x - r.x)+(start.y - r.y)*(start.y - r.y)+(start.z - r.z)*(start.z-r.z));
-    if ((distance < closestIntersection.distance) || (closestIntersection.distance == 0))
+    if (distance < closestIntersection.distance ||closestIntersection.distance== 0)
     {
         closestIntersection.position=r;
         closestIntersection.distance = distance;
@@ -154,7 +198,6 @@ bool ClosestIntersection(vec3 start,vec3 dir,const vector<Triangle>& triangles, 
   }
   if (boolFlag ==1)return true;
   return false;
-  //float m = std::numeric_limits<float>::max();
 }
 
 void Update(){
@@ -163,30 +206,24 @@ void Update(){
   vec3 forward( R[2][0], R[2][1], R[2][2] );
   // Compute frame time:
   int t2 = SDL_GetTicks();
-  float dt = float(t2-t);//time);
-  //time = t2;
+  float dt = float(t2-t);
   t = t2;
   cout << "Render time: " << dt << " ms." << endl;
   Uint8* keystate = SDL_GetKeyState( 0 );
 
   // Move camera forward
-  if( keystate[SDLK_UP]) { cameraPos+=forward;//cameraPos.z++;
-  }
+  if( keystate[SDLK_UP]) cameraPos+=forward;
   // Move camera backward
-  if( keystate[SDLK_DOWN] ) { cameraPos-=forward;//cameraPos.z--;
-  }
+  if( keystate[SDLK_DOWN] ) cameraPos-=forward;
+  //Rotate camera
   if( keystate[SDLK_LEFT] )
   {
-    // Move camera to the left
-    //cameraPos.x--;
-    yaw += 1;
+    yaw -= 1;
     UpdateRY();
   }
   if( keystate[SDLK_RIGHT] )
   {
-    // Move camera to the right
-    //cameraPos.x++;
-    yaw -= 1;
+    yaw += 1;
     UpdateRY();
   }
   if( keystate[SDLK_w] ) { lightPos+=forward; }
@@ -195,8 +232,6 @@ void Update(){
   if( keystate[SDLK_d] ) { lightPos+=right; }
   if( keystate[SDLK_q] ) { lightPos-=down; }
   if( keystate[SDLK_e] ) { lightPos+=down; }
-
-  cout<<lightPos.x <<" "<<lightPos.y<<" "<<lightPos.z<<endl;
 }
 
 void UpdateRY(){
@@ -207,43 +242,24 @@ void UpdateRY(){
   );
 }
 
-//Takes an intersection, which gives the position
-//where we want to know the direct illumination
-//as well as the index to the triangle that should get illuminated
+//Takes an intersection, where we want to know the direct illumination
 //Return the resulting direct illumination described by D = (P max(r, n, 0))/4 pi r^2
 vec3 DirectLight(const Intersection& i) {
-
-//Simulate shadows if another surface intersects
-// the ray from the light source to the surface
-
-  //When illuminating a surface point
-  //  we cast another ray from it to the light source
-  //THen we check the distance to the closest intersecting surface
-  //If closer than the light source, the surface is in shadow
-  // and does not receive any direct illumination from the light source
-
   vec3 D;
-
+  Intersection is;
   Triangle tri = triangle[i.triangleIndex];
-
-  vec3 n = tri.normal;//surface point normal
+  vec3 n = tri.normal;  //surface point normal
   vec3 ur = lightPos - i.position;//direction vector from surface to light source
   float r = length(ur); //Distance between surface and light source
-
-  ur = normalize(ur); //get unit vector
-
-  Intersection is;
-
+  ur = normalize(ur);   //get unit vector
   bool a = ClosestIntersection(i.position, ur, triangle, is);
   if (a && (is.distance < r)&& (is.distance > 0.001)){
     D = vec3(0, 0, 0);
   }
   else{
-    float A = 4 * M_PI * r * r;
-    vec3 B = lightColor/A;
+    vec3 B = lightColor/(float)(4 * M_PI * r * r);
     float nr = dot(n, ur);
     D = B * max(nr, 0.f);
   }
-
   return D;
 }
